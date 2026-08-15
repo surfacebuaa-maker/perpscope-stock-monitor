@@ -15,6 +15,7 @@ type Quote = {
 
 type SpreadRow = {
   symbol: string;
+  stockName: string;
   region: Region;
   low: Quote;
   high: Quote;
@@ -29,34 +30,13 @@ type Snapshot = {
   refreshSeconds: number;
   rows: SpreadRow[];
   venues: string[];
+  activeVenues?: number;
   errors: string[];
   market?: {
     open: boolean;
     label: string;
     nextTransitionAt: number | null;
   };
-};
-
-const STOCK_NAMES: Record<string, string> = {
-  AAPL: "Apple",
-  AMD: "Advanced Micro Devices",
-  AMZN: "Amazon",
-  BABA: "Alibaba",
-  COIN: "Coinbase",
-  CRCL: "Circle",
-  GOOGL: "Alphabet",
-  HANMI: "Hanmi Semiconductor",
-  HYUNDAI: "Hyundai Motor",
-  LGELECTRONICS: "LG Electronics",
-  META: "Meta Platforms",
-  MSFT: "Microsoft",
-  NAVER: "Naver",
-  NFLX: "Netflix",
-  NVDA: "NVIDIA",
-  SAMSUNG: "Samsung Electronics",
-  SAMSUNGEM: "Samsung Electro-Mechanics",
-  SKHYNIX: "SK Hynix",
-  TSLA: "Tesla",
 };
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
@@ -92,7 +72,7 @@ export default function Home() {
     if (manual) setRefreshing(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/spreads", { cache: manual ? "no-store" : "default" });
+      const response = await fetch("/api/spreads?v=2", { cache: manual ? "no-store" : "default" });
       const payload: unknown = await response.json();
       if (!response.ok || !isSnapshot(payload)) throw new Error("行情服务暂时不可用");
       setSnapshot(payload);
@@ -137,7 +117,7 @@ export default function Home() {
     return [...(snapshot?.rows ?? [])]
       .filter((row) => region === "ALL" || row.region === region)
       .filter((row) => row.venueCount >= minVenues)
-      .filter((row) => !normalized || `${row.symbol} ${STOCK_NAMES[row.symbol] ?? ""}`.toLowerCase().includes(normalized))
+      .filter((row) => !normalized || `${row.symbol} ${row.stockName}`.toLowerCase().includes(normalized))
       .sort((a, b) => {
         if (sort === "symbol") return a.symbol.localeCompare(b.symbol);
         if (sort === "venues") return b.venueCount - a.venueCount || b.spreadPct - a.spreadPct;
@@ -178,13 +158,13 @@ export default function Home() {
       <section className="summary" aria-label="行情摘要">
         <div><span>跨所标的</span><strong>{snapshot?.rows.length ?? "—"}</strong><small>至少两个有效报价</small></div>
         <div><span>当前榜单</span><strong>{rows.length}</strong><small>符合筛选条件</small></div>
-        <div><span>接入市场</span><strong>{snapshot?.venues.length ?? 6}</strong><small>家合约交易所</small></div>
+        <div><span>有效市场</span><strong>{snapshot?.activeVenues ?? 0}</strong><small>当前有可用报价</small></div>
         <div><span>下次刷新</span><strong className="timer">{nextRefresh}</strong><small>{snapshot ? `更新于 ${clock.format(snapshot.generatedAt)}` : "北京时间"}</small></div>
       </section>
 
       {(loadError || (snapshot?.errors.length ?? 0) > 0) && (
         <div className="notice" role="status">
-          <strong>部分数据可能延迟</strong>
+          <strong>{(snapshot?.rows.length ?? 0) > 0 ? "部分市场受限，已自动降级" : "行情源暂时不可用"}</strong>
           <span>{loadError || `${snapshot?.errors.slice(0, 2).join("；")}${(snapshot?.errors.length ?? 0) > 2 ? " 等" : ""}`}</span>
         </div>
       )}
@@ -225,7 +205,7 @@ export default function Home() {
         </div>
 
         <div className="table-head">
-          <span>排名 / 标的</span><span>最低价</span><span>最高价</span><span>绝对价差</span><span>价差比例</span><span>市场</span>
+          <span>股票 / 中文名</span><span>最低价合约</span><span>最高价合约</span><span>绝对价差</span><span>价差比例</span><span>报价数</span>
         </div>
         <div className="rows" aria-live="polite">
           {loading && Array.from({ length: 5 }, (_, index) => <div className="loading-row" key={index} />)}
@@ -237,10 +217,10 @@ export default function Home() {
                   <span className="asset-cell">
                     <span className="rank">{String(index + 1).padStart(2, "0")}</span>
                     <span className={`region-tag ${row.region.toLowerCase()}`}>{row.region}</span>
-                    <span className="asset-title"><strong>{row.symbol}</strong><small>{STOCK_NAMES[row.symbol] ?? (row.region === "KR" ? "韩国股票合约" : "美国股票合约")}</small></span>
+                    <span className="asset-title"><strong>{row.symbol}</strong><small>{row.stockName}</small></span>
                   </span>
-                  <span className="price-cell"><strong>{money.format(row.low.price)}</strong><small>{row.low.venue}</small></span>
-                  <span className="price-cell high"><strong>{money.format(row.high.price)}</strong><small>{row.high.venue}</small></span>
+                  <span className="price-cell"><strong>{money.format(row.low.price)}</strong><small>{row.low.venue}</small><em>{row.low.symbol}</em></span>
+                  <span className="price-cell high"><strong>{money.format(row.high.price)}</strong><small>{row.high.venue}</small><em>{row.high.symbol}</em></span>
                   <strong className="spread-abs">{money.format(row.absoluteSpread)}</strong>
                   <strong className="spread-pct">+{row.spreadPct.toFixed(2)}%</strong>
                   <span className="venue-count"><b>{row.venueCount}</b><span>个报价</span><i aria-hidden="true">⌄</i></span>
@@ -262,8 +242,8 @@ export default function Home() {
           })}
           {!loading && rows.length === 0 && (
             <div className="empty-state">
-              <strong>没有符合条件的价差</strong>
-              <span>试试放宽区域、报价数量或搜索条件。</span>
+              <strong>{(snapshot?.rows.length ?? 0) === 0 ? "正在等待可用交易所报价" : "没有符合条件的价差"}</strong>
+              <span>{(snapshot?.rows.length ?? 0) === 0 ? "行情源恢复后会自动显示，无需重新设置。" : "试试放宽区域、报价数量或搜索条件。"}</span>
             </div>
           )}
         </div>

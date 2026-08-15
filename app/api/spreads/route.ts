@@ -1,6 +1,8 @@
+import { STOCK_CATALOG, type StockRegion } from "@/lib/stock-catalog";
+
 type JsonRecord = Record<string, unknown>;
 
-type Region = "US" | "KR";
+type Region = StockRegion;
 type Exchange = "binance" | "bitget" | "gate" | "bybit" | "okx" | "hyperliquid";
 
 type Instrument = {
@@ -177,7 +179,9 @@ async function discover(): Promise<DiscoveryResult> {
   const errors = [binance.error, bitget.error, gate.error, bybit.error, okx.error, hyperliquid.error].filter(
     (value): value is string => Boolean(value),
   );
-  const regions = new Map<string, Region>();
+  const regions = new Map<string, Region>(
+    Object.entries(STOCK_CATALOG).map(([symbol, item]) => [symbol, item.region]),
+  );
   const raw: Array<Omit<Instrument, "region">> = [];
 
   for (const item of records(isRecord(binance.value) ? binance.value.symbols : [])) {
@@ -407,6 +411,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
     const absoluteSpread = high.price - low.price;
     return [{
       symbol: canonical,
+      stockName: STOCK_CATALOG[canonical]?.name ?? `${canonical} 股票`,
       region: regions.get(canonical) ?? "US",
       low,
       high,
@@ -423,6 +428,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
     market,
     rows,
     venues: Object.values(EXCHANGE_LABELS),
+    activeVenues: new Set(rows.flatMap((row) => row.quotes.map((quote) => quote.exchange))).size,
     errors: [...discovery.errors, ...errors],
   };
   snapshotCache = { expiresAt: now + SNAPSHOT_TTL_MS, value };

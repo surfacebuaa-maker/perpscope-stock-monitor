@@ -77,6 +77,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .asset-title, .price-cell { display: grid; gap: 5px; min-width: 0; }
 .asset-title strong { font: 700 16px Georgia, serif; }
 .asset-title small, .price-cell small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.price-cell em { overflow: hidden; color: #8a918a; font: 9px var(--font-geist-mono), monospace; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .price-cell strong, .spread-abs { font-family: var(--font-geist-mono), monospace; font-size: 14px; }
 .price-cell.high strong { color: var(--red); }
 .spread-pct { width: fit-content; padding: 8px 9px; background: var(--acid); color: var(--ink); font-family: var(--font-geist-mono), monospace; font-size: 13px; }
