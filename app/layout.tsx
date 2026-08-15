@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "PerpScope — 股票合约价差监控";
-const description = "聚合 Binance、Bitget、Gate、Bybit、OKX 与 Hyperliquid 的美股和韩股合约报价，按跨所价差实时排序。";
+const title = "PerpScope — 股票合约收盘偏离监控";
+const description = "聚合 Binance、Bitget、Gate、Bybit、OKX 与 Hyperliquid 的股票合约报价，按合约现价相对股票最近收盘基准的偏离百分比排序。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -29,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       locale: "zh_CN",
-      images: [{ url: image, width: 1730, height: 909, alt: "PerpScope 股票合约价差监控" }],
+      images: [{ url: image, width: 1730, height: 909, alt: "PerpScope 股票合约收盘偏离监控" }],
     },
     twitter: {
       card: "summary_large_image",

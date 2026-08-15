@@ -18,6 +18,7 @@ type Quote = {
   venue: string;
   symbol: string;
   price: number;
+  referencePrice?: number;
   timestamp: number;
   volume?: number;
 };
@@ -273,7 +274,7 @@ function pointsFromRows(
   rows: JsonRecord[],
   symbolKey: string,
   priceKeys: string[],
-  timestampKey?: string,
+  options?: { timestampKey?: string; referenceKeys?: string[] },
 ): Quote[] {
   const wanted = new Map(instruments.map((item) => [item.symbol, item]));
   const now = Date.now();
@@ -283,12 +284,16 @@ function pointsFromRows(
     if (!instrument) continue;
     const price = priceKeys.map((key) => number(row[key])).find((value) => value > 0) ?? 0;
     if (!price) continue;
+    const referencePrice = (options?.referenceKeys ?? [])
+      .map((key) => number(row[key]))
+      .find((value) => value > 0);
     result.push({
       exchange: instrument.exchange,
       venue: EXCHANGE_LABELS[instrument.exchange],
       symbol: instrument.symbol,
       price,
-      timestamp: timestampKey ? number(row[timestampKey]) || now : now,
+      referencePrice,
+      timestamp: options?.timestampKey ? number(row[options.timestampKey]) || now : now,
     });
   }
   return result;
@@ -321,6 +326,7 @@ async function fetchHyperliquidPrices(instruments: Instrument[]): Promise<Quote[
         venue: dex ? `Hyperliquid · ${dex}` : "Hyperliquid",
         symbol: instrument.symbol,
         price,
+        referencePrice: number(context?.oraclePx) || undefined,
         timestamp: now,
         volume: number(context?.dayNtlVlm),
       }];
@@ -340,24 +346,50 @@ async function fetchPrices(instruments: Instrument[]): Promise<{ quotes: Map<str
 
   if (groups.has("binance")) enqueue("binance", (async () => {
     const payload = await fetchJson("https://fapi.binance.com/fapi/v1/premiumIndex");
-    return pointsFromRows(groups.get("binance") ?? [], records(payload), "symbol", ["markPrice"], "time");
+    return pointsFromRows(groups.get("binance") ?? [], records(payload), "symbol", ["markPrice"], {
+      timestampKey: "time",
+      referenceKeys: ["indexPrice"],
+    });
   })());
   if (groups.has("bitget")) enqueue("bitget", (async () => {
     const payload = await fetchJson("https://api.bitget.com/api/v3/market/tickers?category=USDT-FUTURES");
-    return pointsFromRows(groups.get("bitget") ?? [], records(isRecord(payload) ? payload.data : []), "symbol", ["markPrice", "lastPrice"], "ts");
+    return pointsFromRows(groups.get("bitget") ?? [], records(isRecord(payload) ? payload.data : []), "symbol", ["markPrice", "lastPrice"], {
+      timestampKey: "ts",
+      referenceKeys: ["indexPrice"],
+    });
   })());
   if (groups.has("gate")) enqueue("gate", (async () => {
     const payload = await fetchJson("https://api.gateio.ws/api/v4/futures/usdt/tickers");
-    return pointsFromRows(groups.get("gate") ?? [], records(payload), "contract", ["mark_price", "last"]);
+    return pointsFromRows(groups.get("gate") ?? [], records(payload), "contract", ["mark_price", "last"], {
+      referenceKeys: ["index_price"],
+    });
   })());
   if (groups.has("bybit")) enqueue("bybit", (async () => {
     const payload = await fetchJson("https://api.bybit.com/v5/market/tickers?category=linear");
     const list = arrayAt(objectAt(payload, "result"), "list");
-    return pointsFromRows(groups.get("bybit") ?? [], records(list), "symbol", ["markPrice", "lastPrice"]);
+    return pointsFromRows(groups.get("bybit") ?? [], records(list), "symbol", ["markPrice", "lastPrice"], {
+      referenceKeys: ["indexPrice"],
+    });
   })());
   if (groups.has("okx")) enqueue("okx", (async () => {
-    const payload = await fetchJson("https://www.okx.com/api/v5/public/mark-price?instType=SWAP");
-    return pointsFromRows(groups.get("okx") ?? [], records(isRecord(payload) ? payload.data : []), "instId", ["markPx"], "ts");
+    const [marksPayload, indexesPayload] = await Promise.all([
+      fetchJson("https://www.okx.com/api/v5/public/mark-price?instType=SWAP"),
+      fetchJson("https://www.okx.com/api/v5/market/index-tickers?quoteCcy=USDT"),
+    ]);
+    const indexBySymbol = new Map(
+      records(isRecord(indexesPayload) ? indexesPayload.data : [])
+        .map((item) => [text(item.instId), number(item.idxPx)]),
+    );
+    return pointsFromRows(
+      groups.get("okx") ?? [],
+      records(isRecord(marksPayload) ? marksPayload.data : []).map((item) => ({
+        ...item,
+        referencePrice: indexBySymbol.get(text(item.instId).replace(/-SWAP$/, "")) ?? 0,
+      })),
+      "instId",
+      ["markPx"],
+      { timestampKey: "ts", referenceKeys: ["referencePrice"] },
+    );
   })());
   if (groups.has("hyperliquid")) enqueue("hyperliquid", fetchHyperliquidPrices(groups.get("hyperliquid") ?? []));
 
@@ -413,29 +445,52 @@ async function buildSnapshot(): Promise<JsonRecord> {
   const [{ quotes, errors }, market] = await Promise.all([fetchPrices(discovery.instruments), marketState()]);
   const regions = new Map(discovery.instruments.map((item) => [item.canonical, item.region]));
 
+  const referencePriority: Record<Exchange, number> = {
+    bybit: 0,
+    okx: 1,
+    binance: 2,
+    bitget: 3,
+    gate: 4,
+    hyperliquid: 5,
+  };
+
   const rows = [...quotes.entries()].flatMap(([canonical, rawQuotes]) => {
     const bestByExchange = new Map<Exchange, Quote>();
     for (const quote of rawQuotes) {
       const current = bestByExchange.get(quote.exchange);
       if (!current || (quote.volume ?? 0) > (current.volume ?? 0)) bestByExchange.set(quote.exchange, quote);
     }
-    const allQuotes = [...bestByExchange.values()].sort((a, b) => a.price - b.price);
-    if (allQuotes.length < 2) return [];
-    const low = allQuotes[0];
-    const high = allQuotes.at(-1) ?? low;
-    const absoluteSpread = high.price - low.price;
-    return [{
-      symbol: canonical,
-      stockName: STOCK_CATALOG[canonical]?.name ?? `${canonical} 股票`,
-      region: regions.get(canonical) ?? "US",
-      low,
-      high,
-      absoluteSpread,
-      spreadPct: low.price > 0 ? (absoluteSpread / low.price) * 100 : 0,
-      venueCount: allQuotes.length,
-      quotes: allQuotes,
-    }];
-  }).sort((a, b) => b.spreadPct - a.spreadPct);
+    const allQuotes = [...bestByExchange.values()];
+    const referenceQuote = allQuotes
+      .filter((quote) => (quote.referencePrice ?? 0) > 0)
+      .sort((a, b) => referencePriority[a.exchange] - referencePriority[b.exchange])[0];
+    const closePrice = referenceQuote?.referencePrice ?? null;
+
+    return allQuotes.map((quote) => {
+      const priceDifference = closePrice === null ? null : quote.price - closePrice;
+      const deviationPct = closePrice === null ? null : (priceDifference! / closePrice) * 100;
+      return {
+        id: `${quote.exchange}:${quote.symbol}`,
+        stockSymbol: canonical,
+        stockName: STOCK_CATALOG[canonical]?.name ?? `${canonical} 股票`,
+        region: regions.get(canonical) ?? "US",
+        exchange: quote.exchange,
+        venue: quote.venue,
+        contractSymbol: quote.symbol,
+        currentPrice: quote.price,
+        closePrice,
+        closeSource: referenceQuote?.venue ?? null,
+        priceDifference,
+        deviationPct,
+        alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
+        timestamp: quote.timestamp,
+      };
+    });
+  }).sort((a, b) => {
+    const bMagnitude = b.deviationPct === null ? -1 : Math.abs(b.deviationPct);
+    const aMagnitude = a.deviationPct === null ? -1 : Math.abs(a.deviationPct);
+    return bMagnitude - aMagnitude;
+  });
 
   const value: JsonRecord = {
     generatedAt: now,
@@ -443,7 +498,9 @@ async function buildSnapshot(): Promise<JsonRecord> {
     market,
     rows,
     venues: Object.values(EXCHANGE_LABELS),
-    activeVenues: new Set(rows.flatMap((row) => row.quotes.map((quote) => quote.exchange))).size,
+    referenceCoverage: rows.filter((row) => row.closePrice !== null).length,
+    alertCount: rows.filter((row) => row.alert).length,
+    activeVenues: new Set(rows.map((row) => row.exchange)).size,
     errors: [...discovery.errors, ...errors],
   };
   snapshotCache = { expiresAt: now + SNAPSHOT_TTL_MS, value };
