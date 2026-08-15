@@ -213,7 +213,7 @@ export default function Home() {
         <div>
           <p className="eyebrow">CONTRACT VS. STOCK CLOSE</p>
           <h1>偏离收盘，一眼排清。</h1>
-          <p className="hero-copy">同一股票的所有交易所合约收在一张卡片里，统一对比 Nasdaq 常规收盘价。美股休市期间每 5 分钟刷新，绝对偏离达到 20% 自动标红警报。</p>
+          <p className="hero-copy">同一股票的所有交易所合约收在一张卡片里，美股对比 Nasdaq 收盘价，韩股对比 KRX 收盘价（按 USD/KRW 换算）。美股休市期间每 5 分钟刷新，绝对偏离达到 20% 自动标红警报。</p>
         </div>
         <div className={`hero-stat ${largest && (largest.deviationPct ?? 0) < 0 ? "negative" : ""}`}>
           <span>当前最大收盘偏离</span>
@@ -225,7 +225,7 @@ export default function Home() {
       <section className="summary" aria-label="行情摘要">
         <div><span>股票标的</span><strong>{snapshot ? allStockCount : "—"}</strong><small>{snapshot?.rows.length ?? 0} 个交易所合约</small></div>
         <div><span>20% 警报</span><strong className="alert-number">{alertStockCount}</strong><small>{snapshot?.alertCount ?? 0} 个合约触发</small></div>
-        <div><span>统一价覆盖</span><strong>{snapshot ? `${snapshot.referenceCoverage ?? 0}/${snapshot.rows.length}` : "—"}</strong><small>{snapshot?.closeProvider ?? "Nasdaq"} · {snapshot?.activeVenues ?? 0} 个市场</small></div>
+        <div><span>统一价覆盖</span><strong>{snapshot ? `${snapshot.referenceCoverage ?? 0}/${snapshot.rows.length}` : "—"}</strong><small>{snapshot?.closeProvider ?? "Nasdaq / KRX"} · {snapshot?.activeVenues ?? 0} 个市场</small></div>
         <div><span>下次刷新</span><strong className="timer">{nextRefresh}</strong><small>{snapshot ? `更新于 ${clock.format(snapshot.generatedAt)}` : "北京时间"}</small></div>
       </section>
 
@@ -323,7 +323,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer><span>价差 = 合约现价 − Nasdaq 最近常规收盘价 · 不使用交易所 oracle · 休市期每 5 分钟刷新</span><span>Binance · Bitget · Gate · Bybit · OKX · Hyperliquid</span></footer>
+      <footer><span>价差 = 合约现价 − 最近常规收盘价 · 美股 Nasdaq · 韩股 KRX（USD/KRW 换算）</span><span>Binance · Bitget · Gate · Bybit · OKX · Hyperliquid</span></footer>
     </main>
   );
 }

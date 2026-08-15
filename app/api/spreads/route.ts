@@ -1,4 +1,5 @@
 import { STOCK_CATALOG, type StockRegion } from "@/lib/stock-catalog";
+import { fetchKoreanCloses } from "@/lib/korean-market.mjs";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,6 +25,7 @@ type Quote = {
 
 type CloseResult = {
   closes: Map<string, number>;
+  sources: Map<string, string>;
   asOf: string | null;
   errors: string[];
 };
@@ -396,7 +398,7 @@ async function fetchUnifiedCloses(marketOpen: boolean): Promise<CloseResult> {
     referer: "https://www.nasdaq.com/market-activity/stocks/screener",
     "user-agent": "Mozilla/5.0",
   };
-  const [stocks, etfs] = await Promise.all([
+  const [stocks, etfs, korean] = await Promise.all([
     attempt(
       "Nasdaq 股票收盘价",
       fetchJson("https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&download=true", { headers }),
@@ -405,6 +407,7 @@ async function fetchUnifiedCloses(marketOpen: boolean): Promise<CloseResult> {
       "Nasdaq ETF 收盘价",
       fetchJson("https://api.nasdaq.com/api/screener/etf?tableonly=true&limit=10000&download=true", { headers }),
     ),
+    fetchKoreanCloses({ catalog: STOCK_CATALOG, fetchJson }),
   ]);
 
   const stockData = objectAt(stocks.value, "data");
@@ -430,18 +433,23 @@ async function fetchUnifiedCloses(marketOpen: boolean): Promise<CloseResult> {
     if (close > 0) byMarketSymbol.set(row.symbol.toUpperCase(), close);
   }
 
-  const closes = new Map<string, number>();
+  const closes = new Map<string, number>(korean.closes);
+  const sources = new Map<string, string>(korean.sources);
   for (const [canonical, catalogItem] of Object.entries(STOCK_CATALOG)) {
     if (catalogItem.region !== "US" || catalogItem.name.includes("主题合约")) continue;
     const marketSymbol = UNIFIED_CLOSE_SYMBOLS[canonical] ?? canonical;
     const close = byMarketSymbol.get(marketSymbol);
-    if (close) closes.set(canonical, close);
+    if (close) {
+      closes.set(canonical, close);
+      sources.set(canonical, "Nasdaq");
+    }
   }
 
   return {
     closes,
-    asOf: text(stockData.dataAsOf) || text(etfEnvelope.dataAsOf) || null,
-    errors: [stocks.error, etfs.error].filter((value): value is string => Boolean(value)),
+    sources,
+    asOf: [text(stockData.dataAsOf) || text(etfEnvelope.dataAsOf), korean.asOf].filter(Boolean).join(" · ") || null,
+    errors: [stocks.error, etfs.error, ...korean.errors].filter((value): value is string => Boolean(value)),
   };
 }
 
@@ -495,6 +503,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
     }
     const allQuotes = [...bestByExchange.values()];
     const closePrice = closeResult.closes.get(canonical) ?? null;
+    const closeSource = closeResult.sources.get(canonical) ?? null;
 
     return allQuotes.map((quote) => {
       const priceDifference = closePrice === null ? null : quote.price - closePrice;
@@ -509,7 +518,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
         contractSymbol: quote.symbol,
         currentPrice: quote.price,
         closePrice,
-        closeSource: closePrice === null ? null : "Nasdaq",
+        closeSource: closePrice === null ? null : closeSource,
         priceDifference,
         deviationPct,
         alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
@@ -526,7 +535,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
     generatedAt: now,
     refreshSeconds: 300,
     market,
-    closeProvider: "Nasdaq",
+    closeProvider: "Nasdaq / KRX",
     closeAsOf: closeResult.asOf,
     rows,
     venues: Object.values(EXCHANGE_LABELS),

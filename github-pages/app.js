@@ -82,7 +82,7 @@ async function mergeBrowserBinance(snapshot) {
         contractSymbol: item.symbol,
         currentPrice: quote.price,
         closePrice,
-        closeSource: closePrice === null ? null : "Nasdaq",
+        closeSource: closePrice === null ? null : (catalogItem.region === "KR" ? "KRX · USD/KRW" : "Nasdaq"),
         priceDifference,
         deviationPct,
         alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
@@ -174,7 +174,7 @@ function render() {
   $("#alert-count").textContent = alertStocks;
   $("#alert-detail").textContent = `${state.snapshot.alertCount ?? 0} 个合约触发`;
   $("#coverage").textContent = `${state.snapshot.referenceCoverage ?? 0}/${allRows.length}`;
-  $("#venue-count").textContent = `Nasdaq · ${state.snapshot.activeVenues ?? 0} 个市场`;
+  $("#venue-count").textContent = `${state.snapshot.closeProvider ?? "Nasdaq / KRX"} · ${state.snapshot.activeVenues ?? 0} 个市场`;
   $("#updated-at").textContent = `更新于 ${clock.format(state.snapshot.generatedAt)}`;
 
   const market = $("#market-status");

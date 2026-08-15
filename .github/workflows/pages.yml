@@ -21,6 +21,8 @@ jobs:
       deploy: ${{ steps.market.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
+      - name: Test GitHub Pages data transforms
+        run: node --test tests/korean-market.test.mjs
       - id: market
         name: Collect exchange quotes
         run: node scripts/collect-pages.mjs
