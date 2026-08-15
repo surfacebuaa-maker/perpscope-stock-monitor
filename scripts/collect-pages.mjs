@@ -237,6 +237,10 @@ const snapshot = {
   activeVenues: new Set(rows.map((row) => row.exchange)).size,
   referenceCoverage: rows.filter((row) => row.closePrice !== null).length,
   alertCount: rows.filter((row) => row.alert).length,
+  stockCatalog: Object.fromEntries(catalog),
+  unifiedCloses: Object.fromEntries(
+    [...catalog.entries()].map(([symbol, item]) => [symbol, closeFor(symbol, item, closeResult.closes)]),
+  ),
   errors,
 };
 

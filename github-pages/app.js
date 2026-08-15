@@ -8,6 +8,13 @@ const state = {
   loading: false,
 };
 
+const aliases = {
+  AMDSTOCK: "AMD", APPSTOCK: "APP", CATSTOCK: "CAT", DIASTOCK: "DIA",
+  GMESTOCK: "GME", NOKIA: "NOK", NOKSTOCK: "NOK", PENGSTOCK: "PENG",
+  QNT: "QNTX", SKHX: "SKHYNIX", SMSN: "SAMSUNG", STXSTOCK: "STX",
+  VRTXSTOCK: "VRTX", WENSTOCK: "WEN",
+};
+
 const price = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
 const clock = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
@@ -24,6 +31,74 @@ function signed(value, suffix = "") {
 function direction(value) {
   if (value === null || value === undefined) return "neutral";
   return value >= 0 ? "positive" : "negative";
+}
+
+function canonical(raw) {
+  let value = String(raw ?? "").toUpperCase().replaceAll("-", "").replaceAll("_", "").trim();
+  if (aliases[value]) value = aliases[value];
+  if (value.endsWith("STOCK")) value = value.slice(0, -5);
+  return aliases[value] ?? value;
+}
+
+async function binanceInstruments() {
+  const cacheKey = "perpscope-binance-instruments-v1";
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) ?? "null");
+    if (cached?.expiresAt > Date.now() && Array.isArray(cached.items)) return cached.items;
+  } catch { /* ignore a damaged local cache */ }
+  const response = await fetch("https://fapi.binance.com/fapi/v1/exchangeInfo");
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json();
+  const items = (payload.symbols ?? []).filter((item) => item.contractType === "TRADIFI_PERPETUAL" && item.status === "TRADING" && ["EQUITY", "KR_EQUITY"].includes(item.underlyingType));
+  try { localStorage.setItem(cacheKey, JSON.stringify({ expiresAt: Date.now() + 3_600_000, items })); } catch { /* storage is optional */ }
+  return items;
+}
+
+async function mergeBrowserBinance(snapshot) {
+  if ((snapshot.rows ?? []).some((row) => row.exchange === "binance")) return snapshot;
+  try {
+    const [instruments, pricesResponse] = await Promise.all([
+      binanceInstruments(),
+      fetch("https://fapi.binance.com/fapi/v1/premiumIndex"),
+    ]);
+    if (!pricesResponse.ok) throw new Error(`HTTP ${pricesResponse.status}`);
+    const priceRows = await pricesResponse.json();
+    const prices = new Map(priceRows.map((row) => [row.symbol, { price: Number(row.markPrice), time: Number(row.time) }]));
+    const directRows = instruments.flatMap((item) => {
+      const stockSymbol = canonical(item.baseAsset);
+      const catalogItem = snapshot.stockCatalog?.[stockSymbol];
+      const quote = prices.get(item.symbol);
+      if (!catalogItem || !quote?.price) return [];
+      const closePrice = snapshot.unifiedCloses?.[stockSymbol] ?? null;
+      const priceDifference = closePrice === null ? null : quote.price - closePrice;
+      const deviationPct = closePrice === null ? null : (priceDifference / closePrice) * 100;
+      return [{
+        id: `binance:${item.symbol}`,
+        stockSymbol,
+        stockName: catalogItem.name,
+        region: item.underlyingType === "KR_EQUITY" ? "KR" : catalogItem.region,
+        exchange: "binance",
+        venue: "Binance",
+        contractSymbol: item.symbol,
+        currentPrice: quote.price,
+        closePrice,
+        closeSource: closePrice === null ? null : "Nasdaq",
+        priceDifference,
+        deviationPct,
+        alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
+        timestamp: quote.time || Date.now(),
+      }];
+    });
+    snapshot.rows = [...snapshot.rows.filter((row) => row.exchange !== "binance"), ...directRows];
+    snapshot.activeVenues = new Set(snapshot.rows.map((row) => row.exchange)).size;
+    snapshot.referenceCoverage = snapshot.rows.filter((row) => row.closePrice !== null).length;
+    snapshot.alertCount = snapshot.rows.filter((row) => row.alert).length;
+    snapshot.errors = (snapshot.errors ?? []).filter((error) => !String(error).startsWith("Binance"));
+  } catch (error) {
+    const message = `Binance 浏览器直连: ${error instanceof Error ? error.message : "读取失败"}`;
+    if (!(snapshot.errors ?? []).some((item) => String(item).startsWith("Binance"))) snapshot.errors = [...(snapshot.errors ?? []), message];
+  }
+  return snapshot;
 }
 
 function groupsFromRows() {
@@ -131,6 +206,8 @@ async function load() {
     const response = await fetch(`./data.json?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.snapshot = await response.json();
+    render();
+    state.snapshot = await mergeBrowserBinance(state.snapshot);
     render();
   } catch (error) {
     const notice = $("#notice");
