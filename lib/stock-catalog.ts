@@ -28,6 +28,9 @@ export const KRX_SYMBOLS: Record<string, string> = {
   KODEX200: "069500",
   DOOSBOT: "454910",
   DOOSENER: "034020",
+  SKSQUARE: "402340",
+  HPSP: "403870",
+  JUSUNG: "036930",
 };
 
 const KR_SYMBOLS = Object.keys(KRX_SYMBOLS);
@@ -175,6 +178,9 @@ const NAMES: Record<string, string> = {
   KODEX200: "KODEX 200 ETF",
   DOOSBOT: "斗山机器人",
   DOOSENER: "斗山能源",
+  SKSQUARE: "SK Square",
+  HPSP: "HPSP",
+  JUSUNG: "周星工程",
 };
 
 export const STOCK_CATALOG: Record<string, StockCatalogEntry> = Object.fromEntries([

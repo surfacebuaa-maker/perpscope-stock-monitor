@@ -9,6 +9,7 @@ const TIMEOUT_MS = 20_000;
 const EXCHANGE_LABELS = {
   binance: "Binance",
   bitget: "Bitget",
+  gate: "Gate",
 };
 
 const ALIASES = {
@@ -203,6 +204,49 @@ async function fetchBitget(catalog, closes, sources) {
   });
 }
 
+async function fetchGate(catalog, closes, sources) {
+  const [instrumentsPayload, pricesPayload] = await Promise.all([
+    fetchJson("https://api.gateio.ws/api/v4/futures/usdt/contracts"),
+    fetchJson("https://api.gateio.ws/api/v4/futures/usdt/tickers"),
+  ]);
+  const prices = new Map((pricesPayload ?? []).map((row) => [row.contract, {
+    price: numeric(row.mark_price) || numeric(row.last),
+    time: Date.now(),
+  }]));
+  const exactSymbols = new Set(
+    (instrumentsPayload ?? [])
+      .filter((item) => item.contract_type === "stocks")
+      .map((item) => String(item.name ?? ""))
+      .filter((symbol) => symbol.endsWith("_USDT"))
+      .map((symbol) => directCanonical(symbol.slice(0, -5))),
+  );
+
+  return (instrumentsPayload ?? []).flatMap((item) => {
+    const symbol = String(item.name ?? "");
+    if (item.in_delisting || item.status !== "trading" || item.contract_type !== "stocks" || !symbol.endsWith("_USDT")) return [];
+    const rawUnderlying = symbol.slice(0, -5);
+    const exact = directCanonical(rawUnderlying);
+    let canonical = catalog.has(exact) ? exact : null;
+    if (!canonical && rawUnderlying.endsWith("X")) {
+      const withoutVenueSuffix = directCanonical(rawUnderlying.slice(0, -1));
+      if (catalog.has(withoutVenueSuffix) && !exactSymbols.has(withoutVenueSuffix)) canonical = withoutVenueSuffix;
+    }
+    const quote = prices.get(symbol);
+    const catalogItem = canonical ? catalog.get(canonical) : null;
+    if (!canonical || !catalogItem || !quote?.price) return [];
+    return [buildRow({
+      canonical,
+      region: catalogItem.region,
+      exchange: "gate",
+      symbol,
+      price: quote.price,
+      closePrice: closeFor(canonical, catalogItem, closes),
+      closeSource: sources.get(canonical) ?? null,
+      timestamp: quote.time,
+    })];
+  });
+}
+
 async function setActionOutput(key, value) {
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 }
@@ -219,13 +263,14 @@ if (market.open && process.env.GITHUB_EVENT_NAME === "schedule") {
 }
 
 const closeResult = await fetchUnifiedCloses(Boolean(market.open), catalog);
-const [binance, bitget] = await Promise.all([
+const [binance, bitget, gate] = await Promise.all([
   attempt("Binance", fetchBinance(catalog, closeResult.closes, closeResult.sources)),
   attempt("Bitget", fetchBitget(catalog, closeResult.closes, closeResult.sources)),
+  attempt("Gate", fetchGate(catalog, closeResult.closes, closeResult.sources)),
 ]);
 
 const baseRows = (base.rows ?? [])
-  .filter((row) => !["binance", "bitget"].includes(row.exchange))
+  .filter((row) => !["binance", "bitget", "gate"].includes(row.exchange))
   .map((row) => {
     const catalogItem = catalog.get(row.stockSymbol);
     const closePrice = closeFor(row.stockSymbol, catalogItem, closeResult.closes);
@@ -235,16 +280,17 @@ const baseRows = (base.rows ?? [])
     return { ...row, closePrice, closeSource: closePrice === null ? null : closeSource, priceDifference, deviationPct, alert: deviationPct !== null && Math.abs(deviationPct) >= 20 };
   });
 
-const rows = [...baseRows, ...(binance.value ?? []), ...(bitget.value ?? [])]
+const rows = [...baseRows, ...(binance.value ?? []), ...(bitget.value ?? []), ...(gate.value ?? [])]
   .map((row) => ({ ...row, stockName: catalog.get(row.stockSymbol)?.name ?? row.stockName ?? `${row.stockSymbol} 股票` }))
   .filter((row, index, all) => all.findIndex((candidate) => candidate.id === row.id) === index)
   .sort((a, b) => Math.abs(b.deviationPct ?? 0) - Math.abs(a.deviationPct ?? 0));
 
 const errors = [
-  ...(base.errors ?? []).filter((error) => !String(error).startsWith("Binance") && !String(error).startsWith("Bitget")),
+  ...(base.errors ?? []).filter((error) => !["Binance", "Bitget", "Gate"].some((venue) => String(error).startsWith(venue))),
   baseAttempt.error,
   binance.error,
   bitget.error,
+  gate.error,
   ...closeResult.errors,
 ].filter(Boolean);
 
@@ -273,5 +319,6 @@ console.log(JSON.stringify({
   activeVenues: snapshot.activeVenues,
   binanceRows: rows.filter((row) => row.exchange === "binance").length,
   bitgetRows: rows.filter((row) => row.exchange === "bitget").length,
+  gateRows: rows.filter((row) => row.exchange === "gate").length,
   errors,
 }));
