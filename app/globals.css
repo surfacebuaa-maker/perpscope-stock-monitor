@@ -53,7 +53,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .notice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .panel { border: 1px solid var(--ink); background: rgba(255,255,255,.38); box-shadow: 7px 7px 0 var(--ink); }
-.toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto; align-items: center; gap: 14px; padding: 18px; border-bottom: 1px solid var(--ink); }
+.toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto; align-items: center; gap: 14px; padding: 18px; border-bottom: 1px solid var(--ink); }
 .search { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: white; border: 1px solid var(--line); }
 .search span { font: 22px Georgia, serif; color: var(--muted); }
 .search input { border: 0; outline: 0; width: 100%; min-width: 120px; background: transparent; color: var(--ink); }
@@ -66,16 +66,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .alert-filter.active span { background: white; }
 .sort-select { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
 .sort-select select { height: 38px; border: 1px solid var(--line); background: white; padding: 0 28px 0 10px; color: var(--ink); cursor: pointer; }
+.expand-button { height: 40px; padding: 0 13px; border: 1px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.expand-button:hover { background: white; }
+.expand-button:disabled { opacity: .45; cursor: default; }
 .refresh-button { height: 40px; padding: 0 13px; border: 1px solid var(--ink); background: var(--ink); color: white; cursor: pointer; white-space: nowrap; }
 .refresh-button span { display: inline-block; margin-right: 6px; color: var(--acid); font-size: 18px; }
 .refresh-button:disabled { opacity: .6; cursor: wait; }
 
-.table-head, .spread-row { display: grid; grid-template-columns: 2fr 1.3fr .8fr 1.15fr .7fr .9fr; align-items: center; column-gap: 18px; }
+.group-head, .stock-summary { display: grid; grid-template-columns: 2fr 1.05fr 1.25fr .9fr .7fr; align-items: center; column-gap: 18px; }
 .table-head { padding: 12px 22px; background: #e6e3d9; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
-.spread-row { width: 100%; min-height: 82px; padding: 14px 22px; border-top: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; transition: background .18s ease, transform .18s ease; }
-.spread-row:hover { background: white; }
-.spread-row:hover { transform: translateX(3px); }
-.spread-row.alert { box-shadow: inset 4px 0 0 var(--red); background: rgba(182, 58, 50, .045); }
+.stock-card { border-top: 1px solid var(--line); }
+.stock-card.alert { box-shadow: inset 4px 0 0 var(--red); }
+.stock-summary { width: 100%; min-height: 82px; padding: 14px 22px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.stock-summary:hover, .stock-card.expanded .stock-summary { background: white; }
+.stock-summary:hover { transform: translateX(3px); }
+.stock-card.alert .stock-summary { background: rgba(182, 58, 50, .045); }
 .asset-cell { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .rank { width: 24px; flex: 0 0 24px; font: 13px Georgia, serif; color: #9b9f99; }
 .region-tag { font-size: 9px; font-weight: 800; letter-spacing: .08em; padding: 6px 7px; border: 1px solid; }
@@ -97,6 +102,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .deviation.negative { background: #f4d5d1; color: var(--red); }
 .deviation.neutral { background: #e5e4df; color: var(--muted); }
 .deviation b { padding: 3px 4px; background: var(--red); color: white; font: 800 8px Arial, sans-serif; letter-spacing: .08em; }
+.contract-count { display: flex; align-items: baseline; gap: 5px; }
+.contract-count strong { font: 500 22px Georgia, serif; }
+.contract-count small { color: var(--muted); font-size: 9px; }
+.contract-count i { margin-left: auto; color: var(--muted); font-size: 15px; font-style: normal; transition: transform .18s ease; }
+.stock-card.expanded .contract-count i { transform: rotate(180deg); }
+.contract-list { padding: 14px 22px 20px 72px; background: var(--ink); }
+.contract-list-head, .contract-line { display: grid; grid-template-columns: 1.6fr .8fr .8fr .9fr; align-items: center; gap: 18px; }
+.contract-list-head { padding: 0 13px 9px; color: #98a29b; font-size: 9px; font-weight: 700; letter-spacing: .09em; }
+.contract-line { min-height: 63px; padding: 10px 13px; border-top: 1px solid #3b463e; color: white; }
+.contract-line:hover { background: #263029; }
+.contract-line.alert { box-shadow: inset 3px 0 0 #ff7d70; }
+.contract-line .contract-cell strong, .contract-line .current-price { color: white; }
+.contract-line .contract-cell small { color: #aeb7b0; }
+.contract-line .difference.positive { color: #aeea75; }
+.contract-line .difference.negative { color: #ff9b90; }
 
 .loading-row { height: 82px; border-top: 1px solid var(--line); background: linear-gradient(100deg, transparent 25%, rgba(255,255,255,.75) 38%, transparent 52%); background-size: 200% 100%; animation: sweep 1.3s infinite linear; }
 .empty-state { min-height: 230px; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
@@ -107,9 +127,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 footer { display: flex; justify-content: space-between; padding: 30px 0 42px; color: var(--muted); font-size: 11px; letter-spacing: .04em; }
 
 @media (max-width: 1180px) {
-  .toolbar { grid-template-columns: minmax(260px, 1fr) auto auto; }
-  .sort-select { grid-column: 2; grid-row: 2; }
-  .refresh-button { grid-column: 3; grid-row: 2; }
+  .toolbar { grid-template-columns: 1fr 1fr 1fr; }
+  .search { grid-column: 1 / -1; }
 }
 
 @media (max-width: 900px) {
@@ -122,15 +141,20 @@ footer { display: flex; justify-content: space-between; padding: 30px 0 42px; co
   .toolbar { grid-template-columns: 1fr 1fr; gap: 12px; }
   .search { grid-column: 1 / -1; }
   .segment { width: fit-content; }
-  .sort-select, .refresh-button { grid-column: auto; grid-row: auto; }
+  .sort-select, .expand-button, .refresh-button { grid-column: auto; grid-row: auto; }
   .table-head { display: none; }
-  .spread-row { grid-template-columns: 1fr 1fr; gap: 18px; padding: 20px; }
-  .asset-cell { grid-column: 1 / -1; }
-  .contract-cell { grid-column: 1 / -1; padding: 10px 0; border-block: 1px solid var(--line); }
-  .current-price::before { content: "合约现价  "; color: var(--muted); font: 10px Arial, sans-serif; }
-  .close-cell { text-align: right; }
-  .difference::before { content: "价差  "; color: var(--muted); font: 10px Arial, sans-serif; }
-  .deviation { justify-self: end; }
+  .stock-summary { grid-template-columns: 1fr 1fr; gap: 18px; padding: 20px; }
+  .stock-summary .asset-cell { grid-column: 1 / -1; }
+  .stock-summary .contract-cell { text-align: right; }
+  .stock-summary .deviation { justify-self: start; }
+  .contract-count { justify-self: end; }
+  .contract-list { padding-left: 22px; }
+  .contract-list-head { display: none; }
+  .contract-line { grid-template-columns: 1fr 1fr 1fr; gap: 14px; padding-block: 14px; }
+  .contract-line .contract-cell { grid-column: 1 / -1; padding-bottom: 9px; border-bottom: 1px solid #3b463e; }
+  .contract-line .current-price::before { content: "现价  "; color: #98a29b; font: 9px Arial, sans-serif; }
+  .contract-line .difference::before { content: "价差  "; color: #98a29b; font: 9px Arial, sans-serif; }
+  .contract-line .deviation { justify-self: end; }
 }
 
 @media (max-width: 560px) {
@@ -141,11 +165,11 @@ footer { display: flex; justify-content: space-between; padding: 30px 0 42px; co
   .hero-copy { font-size: 14px; }
   .summary > div { min-height: 92px; padding: 15px; }
   .toolbar { grid-template-columns: 1fr; }
-  .search, .segment, .alert-filter, .sort-select, .refresh-button { grid-column: 1; grid-row: auto; width: 100%; }
+  .search, .segment, .alert-filter, .sort-select, .expand-button, .refresh-button { grid-column: 1; grid-row: auto; width: 100%; }
   .segment button { flex: 1; }
   .sort-select { justify-content: space-between; }
   .sort-select select { flex: 1; }
-  .spread-row { grid-template-columns: 1fr 1fr; }
+  .stock-summary { grid-template-columns: 1fr 1fr; }
   .notice { align-items: flex-start; flex-direction: column; gap: 4px; }
   .notice span { white-space: normal; }
   footer { gap: 16px; flex-direction: column; }
