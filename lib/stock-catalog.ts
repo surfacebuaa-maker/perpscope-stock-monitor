@@ -3,6 +3,7 @@ export type StockRegion = "US" | "KR";
 export type StockCatalogEntry = {
   region: StockRegion;
   name: string;
+  referenceSymbol?: string;
 };
 
 const US_SYMBOLS = `
@@ -16,9 +17,20 @@ TER TTWO KSTR BSP BOT WEN INTW SNXX XBI BNC FWDI GEV VRT SNOW APP SKHY MUU
 SOXS TZA SHAZ SOFI PANW PENG TMF TBT BITO PYPL GS SMH KO RDDT
 `.trim().split(/\s+/);
 
-const KR_SYMBOLS = `
-SKHYNIX SAMSUNG HYUNDAI SAMSUNGEM HANMI LGELECTRONICS NAVER KODEX200
-`.trim().split(/\s+/);
+export const KRX_SYMBOLS: Record<string, string> = {
+  SKHYNIX: "000660",
+  SAMSUNG: "005930",
+  HYUNDAI: "005380",
+  SAMSUNGEM: "009150",
+  HANMI: "042700",
+  LGELECTRONICS: "066570",
+  NAVER: "035420",
+  KODEX200: "069500",
+  DOOSBOT: "454910",
+  DOOSENER: "034020",
+};
+
+const KR_SYMBOLS = Object.keys(KRX_SYMBOLS);
 
 const NAMES: Record<string, string> = {
   TSLA: "特斯拉",
@@ -161,9 +173,15 @@ const NAMES: Record<string, string> = {
   LGELECTRONICS: "LG 电子",
   NAVER: "NAVER",
   KODEX200: "KODEX 200 ETF",
+  DOOSBOT: "斗山机器人",
+  DOOSENER: "斗山能源",
 };
 
 export const STOCK_CATALOG: Record<string, StockCatalogEntry> = Object.fromEntries([
   ...US_SYMBOLS.map((symbol) => [symbol, { region: "US" as const, name: NAMES[symbol] ?? `${symbol} 股票` }]),
-  ...KR_SYMBOLS.map((symbol) => [symbol, { region: "KR" as const, name: NAMES[symbol] ?? `${symbol} 股票` }]),
+  ...KR_SYMBOLS.map((symbol) => [symbol, {
+    region: "KR" as const,
+    name: NAMES[symbol] ?? `${symbol} 股票`,
+    referenceSymbol: KRX_SYMBOLS[symbol],
+  }]),
 ]);

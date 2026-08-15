@@ -1,4 +1,5 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { fetchKoreanCloses } from "../lib/korean-market.mjs";
 
 const SOURCE_SITE = "https://perpscope-spread-monitor.surface-buaa139523.chatgpt.site/api/spreads?v=7";
 const OUTPUT = new URL("../github-pages/data.json", import.meta.url);
@@ -56,13 +57,19 @@ async function attempt(label, task) {
 async function readCatalog() {
   const source = await readFile(CATALOG_SOURCE, "utf8");
   const usSymbols = source.match(/const US_SYMBOLS = `([\s\S]*?)`/)?.[1].trim().split(/\s+/) ?? [];
-  const krSymbols = source.match(/const KR_SYMBOLS = `([\s\S]*?)`/)?.[1].trim().split(/\s+/) ?? [];
+  const krxBlock = source.match(/export const KRX_SYMBOLS:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
+  const krxSymbols = new Map();
+  for (const match of krxBlock.matchAll(/^\s*([A-Z0-9]+):\s*"([0-9]+)",?$/gm)) krxSymbols.set(match[1], match[2]);
   const namesBlock = source.match(/const NAMES:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
   const names = new Map();
   for (const match of namesBlock.matchAll(/^\s*([A-Z0-9]+):\s*"([^"]*)",?$/gm)) names.set(match[1], match[2]);
   return new Map([
     ...usSymbols.map((symbol) => [symbol, { region: "US", name: names.get(symbol) ?? `${symbol} 股票` }]),
-    ...krSymbols.map((symbol) => [symbol, { region: "KR", name: names.get(symbol) ?? `${symbol} 股票` }]),
+    ...[...krxSymbols].map(([symbol, referenceSymbol]) => [symbol, {
+      region: "KR",
+      name: names.get(symbol) ?? `${symbol} 股票`,
+      referenceSymbol,
+    }]),
   ]);
 }
 
@@ -76,16 +83,17 @@ function fallbackMarketState() {
   return { open, label: open ? "美股开市 · 等待休市" : "美股休市 · 监控中", nextTransitionAt: null, source: "fallback" };
 }
 
-async function fetchUnifiedCloses(marketOpen) {
+async function fetchUnifiedCloses(marketOpen, catalog) {
   const headers = {
     "accept-language": "en-US,en;q=0.9",
     origin: "https://www.nasdaq.com",
     referer: "https://www.nasdaq.com/market-activity/stocks/screener",
     "user-agent": "Mozilla/5.0",
   };
-  const [stocks, etfs] = await Promise.all([
+  const [stocks, etfs, korean] = await Promise.all([
     attempt("Nasdaq 股票收盘价", fetchJson("https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&download=true", { headers })),
     attempt("Nasdaq ETF 收盘价", fetchJson("https://api.nasdaq.com/api/screener/etf?tableonly=true&limit=10000&download=true", { headers })),
+    fetchKoreanCloses({ catalog, fetchJson }),
   ]);
   const stockData = stocks.value?.data ?? {};
   const etfEnvelope = etfs.value?.data ?? {};
@@ -94,25 +102,36 @@ async function fetchUnifiedCloses(marketOpen) {
     ...((stockData.rows ?? []).map((row) => ({ symbol: row.symbol, last: marketNumber(row.lastsale), change: marketNumber(row.netchange) }))),
     ...((etfData.rows ?? []).map((row) => ({ symbol: row.symbol, last: marketNumber(row.lastSalePrice), change: marketNumber(row.netChange) }))),
   ];
-  const closes = new Map();
+  const byMarketSymbol = new Map();
   for (const row of rows) {
     if (!row.symbol || row.last <= 0) continue;
     const close = marketOpen ? row.last - row.change : row.last;
-    if (close > 0) closes.set(String(row.symbol).toUpperCase(), close);
+    if (close > 0) byMarketSymbol.set(String(row.symbol).toUpperCase(), close);
+  }
+
+  const closes = new Map(korean.closes);
+  const sources = new Map(korean.sources);
+  for (const [canonical, item] of catalog) {
+    if (item.region !== "US" || item.name.includes("主题合约")) continue;
+    const close = byMarketSymbol.get(CLOSE_SYMBOLS[canonical] ?? canonical);
+    if (!close) continue;
+    closes.set(canonical, close);
+    sources.set(canonical, "Nasdaq");
   }
   return {
     closes,
-    asOf: stockData.dataAsOf ?? etfEnvelope.dataAsOf ?? null,
-    errors: [stocks.error, etfs.error].filter(Boolean),
+    sources,
+    asOf: [stockData.dataAsOf ?? etfEnvelope.dataAsOf, korean.asOf].filter(Boolean).join(" · ") || null,
+    errors: [stocks.error, etfs.error, ...korean.errors].filter(Boolean),
   };
 }
 
 function closeFor(canonical, catalogItem, closes) {
-  if (catalogItem?.region === "KR" || catalogItem?.name?.includes("主题合约")) return null;
-  return closes.get(CLOSE_SYMBOLS[canonical] ?? canonical) ?? null;
+  if (catalogItem?.name?.includes("主题合约")) return null;
+  return closes.get(canonical) ?? null;
 }
 
-function buildRow({ canonical, region, exchange, symbol, price, closePrice, timestamp }) {
+function buildRow({ canonical, region, exchange, symbol, price, closePrice, closeSource, timestamp }) {
   const difference = closePrice === null ? null : price - closePrice;
   const deviationPct = closePrice === null ? null : (difference / closePrice) * 100;
   return {
@@ -125,7 +144,7 @@ function buildRow({ canonical, region, exchange, symbol, price, closePrice, time
     contractSymbol: symbol,
     currentPrice: price,
     closePrice,
-    closeSource: closePrice === null ? null : "Nasdaq",
+    closeSource: closePrice === null ? null : closeSource,
     priceDifference: difference,
     deviationPct,
     alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
@@ -133,7 +152,7 @@ function buildRow({ canonical, region, exchange, symbol, price, closePrice, time
   };
 }
 
-async function fetchBinance(catalog, closes) {
+async function fetchBinance(catalog, closes, sources) {
   const [instrumentsPayload, pricesPayload] = await Promise.all([
     fetchJson("https://fapi.binance.com/fapi/v1/exchangeInfo"),
     fetchJson("https://fapi.binance.com/fapi/v1/premiumIndex"),
@@ -152,12 +171,13 @@ async function fetchBinance(catalog, closes) {
       symbol: item.symbol,
       price: quote.price,
       closePrice: closeFor(canonical, catalogItem, closes),
+      closeSource: sources.get(canonical) ?? null,
       timestamp: quote.time || Date.now(),
     })];
   });
 }
 
-async function fetchBitget(catalog, closes) {
+async function fetchBitget(catalog, closes, sources) {
   const [instrumentsPayload, pricesPayload] = await Promise.all([
     fetchJson("https://api.bitget.com/api/v3/market/instruments?category=USDT-FUTURES"),
     fetchJson("https://api.bitget.com/api/v3/market/tickers?category=USDT-FUTURES"),
@@ -177,6 +197,7 @@ async function fetchBitget(catalog, closes) {
       symbol: item.symbol,
       price: quote.price,
       closePrice: closeFor(canonical, catalogItem, closes),
+      closeSource: sources.get(canonical) ?? null,
       timestamp: quote.time || Date.now(),
     })];
   });
@@ -197,10 +218,10 @@ if (market.open && process.env.GITHUB_EVENT_NAME === "schedule") {
   process.exit(0);
 }
 
-const closeResult = await fetchUnifiedCloses(Boolean(market.open));
+const closeResult = await fetchUnifiedCloses(Boolean(market.open), catalog);
 const [binance, bitget] = await Promise.all([
-  attempt("Binance", fetchBinance(catalog, closeResult.closes)),
-  attempt("Bitget", fetchBitget(catalog, closeResult.closes)),
+  attempt("Binance", fetchBinance(catalog, closeResult.closes, closeResult.sources)),
+  attempt("Bitget", fetchBitget(catalog, closeResult.closes, closeResult.sources)),
 ]);
 
 const baseRows = (base.rows ?? [])
@@ -208,9 +229,10 @@ const baseRows = (base.rows ?? [])
   .map((row) => {
     const catalogItem = catalog.get(row.stockSymbol);
     const closePrice = closeFor(row.stockSymbol, catalogItem, closeResult.closes);
+    const closeSource = closeResult.sources.get(row.stockSymbol) ?? null;
     const priceDifference = closePrice === null ? null : row.currentPrice - closePrice;
     const deviationPct = closePrice === null ? null : (priceDifference / closePrice) * 100;
-    return { ...row, closePrice, closeSource: closePrice === null ? null : "Nasdaq", priceDifference, deviationPct, alert: deviationPct !== null && Math.abs(deviationPct) >= 20 };
+    return { ...row, closePrice, closeSource: closePrice === null ? null : closeSource, priceDifference, deviationPct, alert: deviationPct !== null && Math.abs(deviationPct) >= 20 };
   });
 
 const rows = [...baseRows, ...(binance.value ?? []), ...(bitget.value ?? [])]
@@ -230,7 +252,7 @@ const snapshot = {
   generatedAt: Date.now(),
   refreshSeconds: 300,
   market,
-  closeProvider: "Nasdaq",
+  closeProvider: "Nasdaq / KRX",
   closeAsOf: closeResult.asOf,
   rows,
   venues: ["Binance", "Bitget", "Gate", "Bybit", "OKX", "Hyperliquid"],
