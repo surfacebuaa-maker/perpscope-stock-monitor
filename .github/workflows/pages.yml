@@ -1,0 +1,49 @@
+name: Deploy PerpScope to GitHub Pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.market.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: market
+        name: Collect exchange quotes
+        run: node scripts/collect-pages.mjs
+      - name: Prepare static site
+        if: steps.market.outputs.deploy == 'true'
+        run: cp public/og.png github-pages/og.png
+      - name: Configure Pages
+        if: steps.market.outputs.deploy == 'true'
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        if: steps.market.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: github-pages
+
+  deploy:
+    if: needs.collect.outputs.deploy == 'true'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: collect
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

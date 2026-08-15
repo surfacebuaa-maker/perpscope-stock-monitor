@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f1e9" />
+    <meta name="description" content="六家交易所股票合约相对统一 Nasdaq 收盘价的偏离监控。" />
+    <meta property="og:title" content="PerpScope — 股票合约收盘偏离监控" />
+    <meta property="og:description" content="Binance、Bitget、Gate、Bybit、OKX、Hyperliquid 股票合约偏离排序。" />
+    <meta property="og:image" content="./og.png" />
+    <title>PerpScope — 股票合约收盘偏离监控</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">Δ</span><div><strong>PerpScope</strong><span>股票合约收盘偏离监控</span></div></div>
+        <div class="market-status" id="market-status"><span></span> 正在确认美股时段</div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">GITHUB PAGES · CONTRACT VS. STOCK CLOSE</p>
+          <h1>偏离收盘，一眼排清。</h1>
+          <p class="hero-copy">同一股票的所有交易所合约收在一张卡片里，统一对比 Nasdaq 常规收盘价。美股休市期间由 GitHub Actions 每 5 分钟采集，绝对偏离达到 20% 自动标红。</p>
+        </div>
+        <div class="hero-stat" id="hero-stat"><span>当前最大收盘偏离</span><strong>—</strong><small>等待行情数据</small></div>
+      </section>
+
+      <section class="summary" aria-label="行情摘要">
+        <div><span>股票标的</span><strong id="stock-count">—</strong><small id="contract-count">等待合约</small></div>
+        <div><span>20% 警报</span><strong class="alert-number" id="alert-count">0</strong><small id="alert-detail">按绝对偏离计算</small></div>
+        <div><span>统一价覆盖</span><strong id="coverage">—</strong><small id="venue-count">等待市场</small></div>
+        <div><span>数据更新</span><strong class="timer" id="refresh-timer">—</strong><small id="updated-at">北京时间</small></div>
+      </section>
+
+      <div class="notice hidden" id="notice" role="status"><strong></strong><span></span></div>
+
+      <section class="panel">
+        <div class="toolbar">
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search" placeholder="搜索股票、合约名或交易所" /></label>
+          <div class="segment" aria-label="区域筛选"><button class="active" data-region="ALL">全部</button><button data-region="US">美股</button><button data-region="KR">韩股</button></div>
+          <button class="alert-filter" id="alerts-only"><span>!</span> 仅看 ≥20%</button>
+          <label class="sort-select"><span>排序</span><select id="sort"><option value="abs_pct">偏离幅度（绝对值）</option><option value="pct_desc">偏离百分比：高到低</option><option value="pct_asc">偏离百分比：低到高</option><option value="points">价差点数（绝对值）</option><option value="symbol">股票代码</option><option value="contracts">合约数量</option></select></label>
+          <button class="expand-button" id="expand-all">全部展开</button>
+          <button class="refresh-button" id="refresh"><span aria-hidden="true">↻</span>立即刷新</button>
+        </div>
+        <div class="table-head group-head"><span>股票 / 中文名</span><span>统一收盘价</span><span>最大偏离合约</span><span>最大偏离</span><span>合约数</span></div>
+        <div class="rows" id="rows" aria-live="polite"><div class="loading-row"></div><div class="loading-row"></div><div class="loading-row"></div></div>
+      </section>
+
+      <footer><span>价差 = 合约现价 − Nasdaq 最近常规收盘价 · 休市期每 5 分钟采集</span><span>Binance · Bitget · Gate · Bybit · OKX · Hyperliquid</span></footer>
+    </main>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
