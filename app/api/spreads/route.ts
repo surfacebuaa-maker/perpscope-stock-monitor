@@ -18,9 +18,14 @@ type Quote = {
   venue: string;
   symbol: string;
   price: number;
-  referencePrice?: number;
   timestamp: number;
   volume?: number;
+};
+
+type CloseResult = {
+  closes: Map<string, number>;
+  asOf: string | null;
+  errors: string[];
 };
 
 type DiscoveryResult = {
@@ -61,6 +66,10 @@ const ALIASES: Record<string, string> = {
   WENSTOCK: "WEN",
 };
 
+const UNIFIED_CLOSE_SYMBOLS: Record<string, string> = {
+  BRKB: "BRK/B",
+};
+
 const DISCOVERY_TTL_MS = 60 * 60 * 1000;
 const SNAPSHOT_TTL_MS = 55 * 1000;
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -83,6 +92,10 @@ function text(value: unknown): string {
 function number(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function marketNumber(value: unknown): number {
+  return number(text(value).replaceAll("$", "").replaceAll(",", "").replaceAll("%", "").trim());
 }
 
 function objectAt(value: unknown, key: string): JsonRecord {
@@ -274,7 +287,7 @@ function pointsFromRows(
   rows: JsonRecord[],
   symbolKey: string,
   priceKeys: string[],
-  options?: { timestampKey?: string; referenceKeys?: string[] },
+  options?: { timestampKey?: string },
 ): Quote[] {
   const wanted = new Map(instruments.map((item) => [item.symbol, item]));
   const now = Date.now();
@@ -284,15 +297,11 @@ function pointsFromRows(
     if (!instrument) continue;
     const price = priceKeys.map((key) => number(row[key])).find((value) => value > 0) ?? 0;
     if (!price) continue;
-    const referencePrice = (options?.referenceKeys ?? [])
-      .map((key) => number(row[key]))
-      .find((value) => value > 0);
     result.push({
       exchange: instrument.exchange,
       venue: EXCHANGE_LABELS[instrument.exchange],
       symbol: instrument.symbol,
       price,
-      referencePrice,
       timestamp: options?.timestampKey ? number(row[options.timestampKey]) || now : now,
     });
   }
@@ -326,7 +335,6 @@ async function fetchHyperliquidPrices(instruments: Instrument[]): Promise<Quote[
         venue: dex ? `Hyperliquid · ${dex}` : "Hyperliquid",
         symbol: instrument.symbol,
         price,
-        referencePrice: number(context?.oraclePx) || undefined,
         timestamp: now,
         volume: number(context?.dayNtlVlm),
       }];
@@ -346,50 +354,24 @@ async function fetchPrices(instruments: Instrument[]): Promise<{ quotes: Map<str
 
   if (groups.has("binance")) enqueue("binance", (async () => {
     const payload = await fetchJson("https://fapi.binance.com/fapi/v1/premiumIndex");
-    return pointsFromRows(groups.get("binance") ?? [], records(payload), "symbol", ["markPrice"], {
-      timestampKey: "time",
-      referenceKeys: ["indexPrice"],
-    });
+    return pointsFromRows(groups.get("binance") ?? [], records(payload), "symbol", ["markPrice"], { timestampKey: "time" });
   })());
   if (groups.has("bitget")) enqueue("bitget", (async () => {
     const payload = await fetchJson("https://api.bitget.com/api/v3/market/tickers?category=USDT-FUTURES");
-    return pointsFromRows(groups.get("bitget") ?? [], records(isRecord(payload) ? payload.data : []), "symbol", ["markPrice", "lastPrice"], {
-      timestampKey: "ts",
-      referenceKeys: ["indexPrice"],
-    });
+    return pointsFromRows(groups.get("bitget") ?? [], records(isRecord(payload) ? payload.data : []), "symbol", ["markPrice", "lastPrice"], { timestampKey: "ts" });
   })());
   if (groups.has("gate")) enqueue("gate", (async () => {
     const payload = await fetchJson("https://api.gateio.ws/api/v4/futures/usdt/tickers");
-    return pointsFromRows(groups.get("gate") ?? [], records(payload), "contract", ["mark_price", "last"], {
-      referenceKeys: ["index_price"],
-    });
+    return pointsFromRows(groups.get("gate") ?? [], records(payload), "contract", ["mark_price", "last"]);
   })());
   if (groups.has("bybit")) enqueue("bybit", (async () => {
     const payload = await fetchJson("https://api.bybit.com/v5/market/tickers?category=linear");
     const list = arrayAt(objectAt(payload, "result"), "list");
-    return pointsFromRows(groups.get("bybit") ?? [], records(list), "symbol", ["markPrice", "lastPrice"], {
-      referenceKeys: ["indexPrice"],
-    });
+    return pointsFromRows(groups.get("bybit") ?? [], records(list), "symbol", ["markPrice", "lastPrice"]);
   })());
   if (groups.has("okx")) enqueue("okx", (async () => {
-    const [marksPayload, indexesPayload] = await Promise.all([
-      fetchJson("https://www.okx.com/api/v5/public/mark-price?instType=SWAP"),
-      fetchJson("https://www.okx.com/api/v5/market/index-tickers?quoteCcy=USDT"),
-    ]);
-    const indexBySymbol = new Map(
-      records(isRecord(indexesPayload) ? indexesPayload.data : [])
-        .map((item) => [text(item.instId), number(item.idxPx)]),
-    );
-    return pointsFromRows(
-      groups.get("okx") ?? [],
-      records(isRecord(marksPayload) ? marksPayload.data : []).map((item) => ({
-        ...item,
-        referencePrice: indexBySymbol.get(text(item.instId).replace(/-SWAP$/, "")) ?? 0,
-      })),
-      "instId",
-      ["markPx"],
-      { timestampKey: "ts", referenceKeys: ["referencePrice"] },
-    );
+    const payload = await fetchJson("https://www.okx.com/api/v5/public/mark-price?instType=SWAP");
+    return pointsFromRows(groups.get("okx") ?? [], records(isRecord(payload) ? payload.data : []), "instId", ["markPx"], { timestampKey: "ts" });
   })());
   if (groups.has("hyperliquid")) enqueue("hyperliquid", fetchHyperliquidPrices(groups.get("hyperliquid") ?? []));
 
@@ -405,6 +387,62 @@ async function fetchPrices(instruments: Instrument[]): Promise<{ quotes: Map<str
     }
   }
   return { quotes: byCanonical, errors };
+}
+
+async function fetchUnifiedCloses(marketOpen: boolean): Promise<CloseResult> {
+  const headers = {
+    "accept-language": "en-US,en;q=0.9",
+    origin: "https://www.nasdaq.com",
+    referer: "https://www.nasdaq.com/market-activity/stocks/screener",
+    "user-agent": "Mozilla/5.0",
+  };
+  const [stocks, etfs] = await Promise.all([
+    attempt(
+      "Nasdaq 股票收盘价",
+      fetchJson("https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&download=true", { headers }),
+    ),
+    attempt(
+      "Nasdaq ETF 收盘价",
+      fetchJson("https://api.nasdaq.com/api/screener/etf?tableonly=true&limit=10000&download=true", { headers }),
+    ),
+  ]);
+
+  const stockData = objectAt(stocks.value, "data");
+  const etfEnvelope = objectAt(etfs.value, "data");
+  const etfData = objectAt(etfEnvelope, "data");
+  const marketRows = [
+    ...records(stockData.rows).map((row) => ({
+      symbol: text(row.symbol),
+      last: marketNumber(row.lastsale),
+      change: marketNumber(row.netchange),
+    })),
+    ...records(etfData.rows).map((row) => ({
+      symbol: text(row.symbol),
+      last: marketNumber(row.lastSalePrice),
+      change: marketNumber(row.netChange),
+    })),
+  ];
+
+  const byMarketSymbol = new Map<string, number>();
+  for (const row of marketRows) {
+    if (!row.symbol || row.last <= 0) continue;
+    const close = marketOpen ? row.last - row.change : row.last;
+    if (close > 0) byMarketSymbol.set(row.symbol.toUpperCase(), close);
+  }
+
+  const closes = new Map<string, number>();
+  for (const [canonical, catalogItem] of Object.entries(STOCK_CATALOG)) {
+    if (catalogItem.region !== "US" || catalogItem.name.includes("主题合约")) continue;
+    const marketSymbol = UNIFIED_CLOSE_SYMBOLS[canonical] ?? canonical;
+    const close = byMarketSymbol.get(marketSymbol);
+    if (close) closes.set(canonical, close);
+  }
+
+  return {
+    closes,
+    asOf: text(stockData.dataAsOf) || text(etfEnvelope.dataAsOf) || null,
+    errors: [stocks.error, etfs.error].filter((value): value is string => Boolean(value)),
+  };
 }
 
 async function marketState(): Promise<MarketState> {
@@ -442,17 +480,12 @@ async function buildSnapshot(): Promise<JsonRecord> {
   const now = Date.now();
   if (snapshotCache && snapshotCache.expiresAt > now) return snapshotCache.value;
   const discovery = await discover();
-  const [{ quotes, errors }, market] = await Promise.all([fetchPrices(discovery.instruments), marketState()]);
+  const market = await marketState();
+  const [{ quotes, errors }, closeResult] = await Promise.all([
+    fetchPrices(discovery.instruments),
+    fetchUnifiedCloses(market.open),
+  ]);
   const regions = new Map(discovery.instruments.map((item) => [item.canonical, item.region]));
-
-  const referencePriority: Record<Exchange, number> = {
-    bybit: 0,
-    okx: 1,
-    binance: 2,
-    bitget: 3,
-    gate: 4,
-    hyperliquid: 5,
-  };
 
   const rows = [...quotes.entries()].flatMap(([canonical, rawQuotes]) => {
     const bestByExchange = new Map<Exchange, Quote>();
@@ -461,10 +494,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
       if (!current || (quote.volume ?? 0) > (current.volume ?? 0)) bestByExchange.set(quote.exchange, quote);
     }
     const allQuotes = [...bestByExchange.values()];
-    const referenceQuote = allQuotes
-      .filter((quote) => (quote.referencePrice ?? 0) > 0)
-      .sort((a, b) => referencePriority[a.exchange] - referencePriority[b.exchange])[0];
-    const closePrice = referenceQuote?.referencePrice ?? null;
+    const closePrice = closeResult.closes.get(canonical) ?? null;
 
     return allQuotes.map((quote) => {
       const priceDifference = closePrice === null ? null : quote.price - closePrice;
@@ -479,7 +509,7 @@ async function buildSnapshot(): Promise<JsonRecord> {
         contractSymbol: quote.symbol,
         currentPrice: quote.price,
         closePrice,
-        closeSource: referenceQuote?.venue ?? null,
+        closeSource: closePrice === null ? null : "Nasdaq",
         priceDifference,
         deviationPct,
         alert: deviationPct !== null && Math.abs(deviationPct) >= 20,
@@ -496,12 +526,14 @@ async function buildSnapshot(): Promise<JsonRecord> {
     generatedAt: now,
     refreshSeconds: 300,
     market,
+    closeProvider: "Nasdaq",
+    closeAsOf: closeResult.asOf,
     rows,
     venues: Object.values(EXCHANGE_LABELS),
     referenceCoverage: rows.filter((row) => row.closePrice !== null).length,
     alertCount: rows.filter((row) => row.alert).length,
     activeVenues: new Set(rows.map((row) => row.exchange)).size,
-    errors: [...discovery.errors, ...errors],
+    errors: [...discovery.errors, ...errors, ...closeResult.errors],
   };
   snapshotCache = { expiresAt: now + SNAPSHOT_TTL_MS, value };
   return value;

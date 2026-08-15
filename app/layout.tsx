@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const title = "PerpScope — 股票合约收盘偏离监控";
-const description = "聚合 Binance、Bitget、Gate、Bybit、OKX 与 Hyperliquid 的股票合约报价，按合约现价相对股票最近收盘基准的偏离百分比排序。";
+const description = "聚合六家交易所的股票合约报价，按合约现价相对统一 Nasdaq 常规收盘价的偏离百分比排序。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();

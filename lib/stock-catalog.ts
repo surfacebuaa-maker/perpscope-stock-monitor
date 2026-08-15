@@ -31,7 +31,7 @@ const NAMES: Record<string, string> = {
   PLTR: "Palantir",
   EWY: "iShares 韩国 ETF",
   EWJ: "iShares 日本 ETF",
-  PAYP: "PayPal",
+  PAYP: "PayPay Corporation",
   META: "Meta Platforms",
   NVDA: "英伟达",
   GOOGL: "谷歌 A",
