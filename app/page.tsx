@@ -72,7 +72,7 @@ export default function Home() {
     if (manual) setRefreshing(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/spreads?v=2", { cache: manual ? "no-store" : "default" });
+      const response = await fetch("/api/spreads?v=3", { cache: manual ? "no-store" : "default" });
       const payload: unknown = await response.json();
       if (!response.ok || !isSnapshot(payload)) throw new Error("行情服务暂时不可用");
       setSnapshot(payload);

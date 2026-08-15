@@ -104,7 +104,6 @@ function directCanonical(raw: string): string {
 function normalizeUnderlying(raw: string, known: Set<string>): string | null {
   const value = directCanonical(raw);
   const candidates = [value, ALIASES[value]];
-  if (value.endsWith("X")) candidates.push(value.slice(0, -1));
   for (const candidate of candidates) {
     if (candidate && known.has(candidate)) return candidate;
   }
@@ -230,7 +229,15 @@ async function discover(): Promise<DiscoveryResult> {
     if (canonical) raw.push({ canonical, exchange: "bitget", symbol: text(item.symbol) });
   }
 
-  for (const item of Array.isArray(gate.value) ? records(gate.value) : []) {
+  const gateItems = Array.isArray(gate.value) ? records(gate.value) : [];
+  const gateExactSymbols = new Set(
+    gateItems
+      .filter((item) => text(item.contract_type) === "stocks")
+      .map((item) => text(item.name))
+      .filter((symbol) => symbol.endsWith("_USDT"))
+      .map((symbol) => directCanonical(symbol.slice(0, -5))),
+  );
+  for (const item of gateItems) {
     const symbol = text(item.name);
     if (
       Boolean(item.in_delisting) ||
@@ -238,7 +245,15 @@ async function discover(): Promise<DiscoveryResult> {
       text(item.contract_type) !== "stocks" ||
       !symbol.endsWith("_USDT")
     ) continue;
-    const canonical = normalizeUnderlying(symbol.slice(0, -5), known);
+    const rawUnderlying = symbol.slice(0, -5);
+    const exact = directCanonical(rawUnderlying);
+    let canonical = known.has(exact) ? exact : null;
+    if (!canonical && rawUnderlying.endsWith("X")) {
+      const withoutVenueSuffix = directCanonical(rawUnderlying.slice(0, -1));
+      if (known.has(withoutVenueSuffix) && !gateExactSymbols.has(withoutVenueSuffix)) {
+        canonical = withoutVenueSuffix;
+      }
+    }
     if (canonical) raw.push({ canonical, exchange: "gate", symbol });
   }
 
