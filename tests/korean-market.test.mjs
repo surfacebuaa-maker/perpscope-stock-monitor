@@ -54,3 +54,17 @@ test("the stock catalog includes both Bitget Doosan contracts", async () => {
   assert.match(source, /DOOSBOT:\s*"454910"/);
   assert.match(source, /DOOSENER:\s*"034020"/);
 });
+
+test("the stock catalog includes the missing Gate Korean contracts", async () => {
+  const source = await readFile(new URL("../lib/stock-catalog.ts", import.meta.url), "utf8");
+  assert.match(source, /SKSQUARE:\s*"402340"/);
+  assert.match(source, /HPSP:\s*"403870"/);
+  assert.match(source, /JUSUNG:\s*"036930"/);
+});
+
+test("the GitHub Pages collector refreshes Gate without a Sites rebuild", async () => {
+  const source = await readFile(new URL("../scripts/collect-pages.mjs", import.meta.url), "utf8");
+  assert.match(source, /api\.gateio\.ws\/api\/v4\/futures\/usdt\/contracts/);
+  assert.match(source, /api\.gateio\.ws\/api\/v4\/futures\/usdt\/tickers/);
+  assert.match(source, /\["binance", "bitget", "gate"\]/);
+});
