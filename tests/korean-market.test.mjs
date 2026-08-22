@@ -6,6 +6,7 @@ import {
   koreanCloseInUsd,
   selectLastCompletedKoreanClose,
 } from "../lib/korean-market.mjs";
+import { activeHyperliquidMarkets } from "../lib/hyperliquid-market.mjs";
 
 const rows = [
   { localTradedAt: "2026-08-14", closePrice: "79,200" },
@@ -67,4 +68,23 @@ test("the GitHub Pages collector refreshes Gate without a Sites rebuild", async 
   assert.match(source, /api\.gateio\.ws\/api\/v4\/futures\/usdt\/contracts/);
   assert.match(source, /api\.gateio\.ws\/api\/v4\/futures\/usdt\/tickers/);
   assert.match(source, /\["binance", "bitget", "gate"\]/);
+});
+
+test("ignores delisted Hyperliquid markets that still expose a mark price", () => {
+  const markets = activeHyperliquidMarkets([
+    {
+      universe: [
+        { name: "km:BMNR", isDelisted: true },
+        { name: "xyz:NVDA" },
+      ],
+    },
+    [
+      { markPx: "15.749", dayNtlVlm: "0.0" },
+      { markPx: "175.25", dayNtlVlm: "12345.67" },
+    ],
+  ]);
+
+  assert.deepEqual(markets, [
+    { name: "xyz:NVDA", price: 175.25, volume: 12345.67 },
+  ]);
 });

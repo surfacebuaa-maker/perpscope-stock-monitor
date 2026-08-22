@@ -1,4 +1,5 @@
 import { STOCK_CATALOG, type StockRegion } from "@/lib/stock-catalog";
+import { activeHyperliquidMarkets } from "@/lib/hyperliquid-market.mjs";
 import { fetchKoreanCloses } from "@/lib/korean-market.mjs";
 
 type JsonRecord = Record<string, unknown>;
@@ -323,22 +324,17 @@ async function fetchHyperliquidPrices(instruments: Instrument[]): Promise<Quote[
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type: "metaAndAssetCtxs", dex }),
     });
-    if (!Array.isArray(payload) || payload.length !== 2 || !isRecord(payload[0])) return [];
-    const universe = records(payload[0].universe);
-    const contexts = records(payload[1]);
     const wanted = new Map(items.map((item) => [item.symbol, item]));
-    return universe.flatMap((meta, index): Quote[] => {
-      const instrument = wanted.get(text(meta.name));
-      const context = contexts[index];
-      const price = number(context?.markPx);
-      if (!instrument || !price) return [];
+    return activeHyperliquidMarkets(payload).flatMap((market): Quote[] => {
+      const instrument = wanted.get(market.name);
+      if (!instrument) return [];
       return [{
         exchange: "hyperliquid",
         venue: dex ? `Hyperliquid · ${dex}` : "Hyperliquid",
         symbol: instrument.symbol,
-        price,
+        price: market.price,
         timestamp: now,
-        volume: number(context?.dayNtlVlm),
+        volume: market.volume,
       }];
     });
   });
