@@ -88,3 +88,16 @@ test("ignores delisted Hyperliquid markets that still expose a mark price", () =
     { name: "xyz:NVDA", price: 175.25, volume: 12345.67 },
   ]);
 });
+
+test("the stock catalog includes instruments launched after the last sync", async () => {
+  const source = await readFile(new URL("../lib/stock-catalog.ts", import.meta.url), "utf8");
+  const catalogSymbols = new Set(source.match(/const US_SYMBOLS = `([\s\S]*?)`/)?.[1].trim().split(/\s+/) ?? []);
+  const symbols = [
+    "GDX", "NET", "VST", "SHOP", "LYTE", "FUTU", "JD", "OUST", "ISRG", "ADI", "PDD",
+    "MOONSHOT", "DDOG", "ANET", "CXMT", "UNITREE", "MRNA", "TEM", "MRK", "MNST", "PURR",
+  ];
+
+  for (const symbol of symbols) {
+    assert.ok(catalogSymbols.has(symbol), `${symbol} is missing from US_SYMBOLS`);
+  }
+});

@@ -15,6 +15,8 @@ IWM AXTI NFLX COST URNM HIMS EBAY ZM DKNG RIVN GME XLE EWZ BMNR UVXY ADBE GLW
 STXX ASML LRCX KLAC ALAB SMCI CIEN KORU SONY MVLL TQQQ SQQQ STRC CAT TXN FLEX
 TER TTWO KSTR BSP BOT WEN INTW SNXX XBI BNC FWDI GEV VRT SNOW APP SKHY MUU
 SOXS TZA SHAZ SOFI PANW PENG TMF TBT BITO PYPL GS SMH KO RDDT
+GDX NET VST SHOP LYTE FUTU JD OUST ISRG ADI PDD MOONSHOT DDOG ANET CXMT UNITREE
+MRNA TEM MRK MNST PURR
 `.trim().split(/\s+/);
 
 export const KRX_SYMBOLS: Record<string, string> = {
@@ -168,6 +170,27 @@ const NAMES: Record<string, string> = {
   SMH: "VanEck 半导体 ETF",
   KO: "可口可乐",
   RDDT: "Reddit",
+  GDX: "VanEck 金矿股 ETF",
+  NET: "Cloudflare",
+  VST: "Vistra",
+  SHOP: "Shopify",
+  LYTE: "Lyten 主题合约",
+  FUTU: "富途控股",
+  JD: "京东",
+  OUST: "Ouster",
+  ISRG: "直觉外科",
+  ADI: "亚德诺半导体",
+  PDD: "拼多多",
+  MOONSHOT: "Moonshot 主题合约",
+  DDOG: "Datadog",
+  ANET: "Arista Networks",
+  CXMT: "长鑫存储主题合约",
+  UNITREE: "宇树科技主题合约",
+  MRNA: "Moderna",
+  TEM: "Tempus AI",
+  MRK: "默沙东",
+  MNST: "Monster Beverage",
+  PURR: "Hyperliquid Strategies",
   SKHYNIX: "SK 海力士",
   SAMSUNG: "三星电子",
   HYUNDAI: "现代汽车",
